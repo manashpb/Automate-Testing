@@ -6,6 +6,7 @@ import getpass
 import json
 import os
 from pathlib import Path
+import re
 import time
 
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError, sync_playwright
@@ -61,13 +62,18 @@ def login(page: Page, username: str, password: str, timeout_ms: int) -> None:
     raise RuntimeError("Login did not reach Medical records; check credentials or complete any login challenge")
 
 
-def open_patient_list(page: Page, database: str, timeout_ms: int = 30000) -> None:
+def open_patient_list(page: Page, database: str, timeout_ms: int = 30000,
+                      expanded: bool = True) -> None:
     expand = button(page, f"Expand {database} patients")
     collapse = button(page, f"Collapse {database} patients")
     deadline = time.monotonic() + timeout_ms / 1000
     next_navigation = 0.0
     while time.monotonic() < deadline:
         dismiss_overlays(page)
+        if not expanded and (expand.is_visible() or collapse.is_visible()):
+            if collapse.is_visible():
+                collapse.click()
+            return
         if expand.is_visible():
             expand.click()
         if collapse.is_visible():
@@ -97,25 +103,50 @@ def create_and_upload(page: Page, name: str, path: Path, database: str,
     save_status()
     patient.click()
     page.get_by_title("Upload Data", exact=True).click()
+    status["stage"] = "selecting_file"
+    save_status()
     page.locator("#upload-data-file-input").set_input_files(str(path), timeout=upload_timeout_ms)
     button(page, "Upload Data").click()
-    page.get_by_text(path.name, exact=True).wait_for(state="visible", timeout=upload_timeout_ms)
-    import_button = button(page, "Import Radiology Files")
-    import_button.wait_for(state="visible", timeout=upload_timeout_ms)
-    status["stage"] = "importing"
+    status["stage"] = "preparing_import"
     save_status()
-    import_button.click()
-    # This dialog was observed only after the imported series opened in the viewer.
+    finish_radiology_import(page, upload_timeout_ms, status, save_status)
+    open_patient_list(page, database, expanded=False)
+    status["stage"] = "completed"
+    save_status()
+
+
+def finish_radiology_import(page: Page, timeout_ms: int, status: dict, save_status) -> None:
+    """Handle extracted ZIP contents, a staged file, or an import already in progress."""
+    deadline = time.monotonic() + timeout_ms / 1000
+    import_clicked = False
     segmentation = page.get_by_text("Automatic Post-Upload Segmentation", exact=True)
-    segmentation.wait_for(state="visible", timeout=upload_timeout_ms)
+    import_button = button(page, "Import Radiology Files")
+    while time.monotonic() < deadline:
+        # Viewer tutorials can appear again after radiology import/navigation.
+        dismiss_overlays(page)
+        if segmentation.is_visible():
+            break
+        processing = any(page.get_by_text(text, exact=True).is_visible() for text in (
+            "Preparing files...", "Uploading and processing files..."
+        ))
+        # A ZIP is expanded into DICOM entries; its original filename disappears.
+        files_ready = page.get_by_text(re.compile(r"^Files\s*\([1-9]\d*\)$")).is_visible()
+        if (not import_clicked and not processing and files_ready
+                and import_button.is_visible() and import_button.is_enabled()):
+            status["stage"] = "importing"
+            save_status()
+            import_button.click()
+            import_clicked = True
+        elif processing and status["stage"] != "importing":
+            status["stage"] = "importing"
+            save_status()
+        page.wait_for_timeout(250)
+    else:
+        raise RuntimeError("Radiology import did not reach the post-upload segmentation dialog")
     status["stage"] = "import_completed"
     save_status()
     button(page, "Cancel").click()
     segmentation.wait_for(state="hidden")
-    open_patient_list(page, database)
-    button(page, f"Collapse {database} patients").click()
-    status["stage"] = "completed"
-    save_status()
 
 
 def upload_patients(patient_names: list[str], file_paths: list[str], *,
@@ -171,7 +202,7 @@ def upload_patients(patient_names: list[str], file_paths: list[str], *,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("input_json", type=Path, help="JSON object with patient_names and file_paths lists")
+    parser.add_argument("input_json", type=Path, help="JSON object with matching patient_names and file_paths lists (DICOM ZIP or radiology files)")
     parser.add_argument("--username", help="Email; otherwise LEARES_USERNAME or prompt")
     parser.add_argument("--database", default="demoDATA")
     parser.add_argument("--headless", action="store_true")

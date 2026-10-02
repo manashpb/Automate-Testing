@@ -103,3 +103,17 @@ page.locator("#upload-data-file-input").set_input_files(file_path)
 
 1. Click `page.get_by_role("button", name="Collapse demoDATA patients", exact=True).click()`.
 2. Verified result: the patient list collapses and the button changes to `Expand demoDATA patients`.
+
+## ZIP regression investigation — 2026-10-02
+
+- Created `LIDC-23` using `D:\nq-1m_bk (1)\dcm.zip`.
+- The original script stalled after entering Radiology Import because it waited for the exact text `dcm.zip`.
+- LEARES extracts this ZIP into `Files (137)` with individual `.dcm` filenames; the original ZIP filename is no longer displayed.
+- The user manually clicked `Import Radiology Files`, confirmed in chat. Upload and processing then reached `Automatic Post-Upload Segmentation`.
+- Corrected the script to wait for a nonzero file count and an enabled Import Radiology Files button, click it once, and wait for the segmentation dialog. If processing is already underway, it waits without submitting again.
+- Manual recording remains active for the remaining cancel and return-to-list steps. Full corrected batch execution is not yet verified.
+- The user reported clicking `Skip Tour` after the ZIP import. The subsequent screen inspection confirmed the tour was hidden and the automatic segmentation dialog was still open. The script now also dismisses tours while waiting for import completion, rather than only during login/list navigation.
+- Clicked the `Cancel` button in the segmentation dialog for `LIDC-23`; verified that `Automatic Post-Upload Segmentation` became hidden. This confirms the script's existing cancel step also applies to the ZIP workflow.
+- Clicked `Manage master data` after cancelling segmentation; the Medical records mode control became visible. The database list loads asynchronously after this navigation.
+- Verified final state: `Expand demoDATA patients` is visible, indicating demoDATA is collapsed. This completes the LIDC-23 upload workflow.
+- The batch script now returns directly to that collapsed database state after each import and expands it only when starting the next patient.

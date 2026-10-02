@@ -4,3 +4,4 @@ patients.json
 upload_results*.json
 upload_results*.json.tmp
 .env
+.venv

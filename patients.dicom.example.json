@@ -1,0 +1,7 @@
+{
+  "patient_names": ["LIDC-24", "LIDC-25"],
+  "file_paths": [
+    "D:\\CT_DATA\\LIDC-24\\dcm.zip",
+    "D:\\CT_DATA\\LIDC-25\\dcm.zip"
+  ]
+}
