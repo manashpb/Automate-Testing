@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+patients.json
+upload_results*.json
+upload_results*.json.tmp
+.env

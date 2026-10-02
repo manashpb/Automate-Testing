@@ -1,0 +1,2 @@
+# Version used for the recorded LEARES workflow.
+playwright==1.63.0
